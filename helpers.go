@@ -1,5 +1,10 @@
 package main
 
+import (
+	"github.com/bwmarrin/discordgo"
+	"log"
+)
+
 var (
 	Reset  = "\033[0m"
 	Bold   = "\033[1m"
@@ -12,3 +17,20 @@ var (
 	Gray   = "\033[37m"
 	White  = "\033[97m"
 )
+
+func WebhookExecuteSimple(
+	session *discordgo.Session,
+	webhookID string,
+	webhookToken string,
+	memberMessage string,
+	memberName string,
+	memberAvatarURL string) {
+	_, err = session.WebhookExecute(webhookID, webhookToken, true, &discordgo.WebhookParams{
+		Content:   memberMessage,
+		Username:  memberName,
+		AvatarURL: memberAvatarURL,
+	})
+	if err != nil {
+		log.Printf("%vERROR%v - COULD NOT EXECUTE WEBHOOK:\n\t%v", Red, Reset, err.Error())
+	}
+}
