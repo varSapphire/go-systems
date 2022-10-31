@@ -1,46 +1,38 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"log"
+	"time"
 )
 
 func clientJoin(session *discordgo.Session, guild *discordgo.GuildCreate) {
 	// Looping through the commands array and registering them.
 	// https://pkg.go.dev/github.com/bwmarrin/discordgo#Session.ApplicationCommandCreate
 	for _, command := range commands {
-		registeredCommand, err := session.ApplicationCommandCreate(session.State.User.ID, guild.ID, command)
+		_, err := session.ApplicationCommandCreate(session.State.User.ID, guild.ID, command)
 		if err != nil {
 			log.Printf("CANNOT CREATE '%v' COMMAND: %v", command.Name, err)
 		}
-
-		// Executing a query to register commands into the database for record keeping.
-		query := fmt.Sprintf(`INSERT INTO commands(guild_id, registered_commands) VALUES(%v, %v)`,
-			guild.ID, registeredCommand.ID)
-		result, err := db.Exec(query)
-		if err != nil {
-			log.Printf("%vERROR%v - COULD NOT PLACE COMMAND IN DATABASE:\n\t%v", Red, Reset, err)
-			return
-		}
-		log.Printf("%vSUCCESS%v - PLACED COMMAND INTO DATABASE:\n\t%v", Green, Reset, result)
 	}
 
-	//// Creating an admin only channel for the logs.
-	//permissions := []*discordgo.PermissionOverwrite{{ID: guild.ID, Allow: 0x0000000000000008, Deny: 0x0000000000000400}}
-	//session.GuildChannelCreateComplex(guild.ID, discordgo.GuildChannelCreateData{
-	//	Name:                 "asg-logs",
-	//	Type:                 0,
-	//	Topic:                "These are the logs for the All Systems Go bot.",
-	//	Position:             0,
-	//	PermissionOverwrites: permissions,
-	//	ParentID:             "",
-	//	NSFW:                 false,
-	//})
 }
 
 var commandHandlers = map[string]func(session *discordgo.Session, interaction *discordgo.InteractionCreate){
+	"setup": func(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
+		// Creating an admin only channel for the logs.
+		permissions := []*discordgo.PermissionOverwrite{{ID: interaction.GuildID, Allow: 0x0000000000000008, Deny: 0x0000000000000400}}
+		session.GuildChannelCreateComplex(interaction.GuildID, discordgo.GuildChannelCreateData{
+			Name:                 "asg-logs",
+			Type:                 0,
+			Topic:                "These are the logs for the All Systems Go bot.",
+			Position:             0,
+			PermissionOverwrites: permissions,
+			ParentID:             "",
+			NSFW:                 false,
+		})
+	},
 	"register": func(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
 		var memberAvatarURL string
 		memberName := interaction.ApplicationCommandData().Options[0].StringValue()
@@ -77,39 +69,54 @@ var commandHandlers = map[string]func(session *discordgo.Session, interaction *d
 			},
 		})
 	},
-	"proxy": func(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
-		var flag bool
+	"proxy_member": func(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
+		var messageFlag bool
+		var webhookFlag bool
 		var webhookID string
 		var webhookToken string
 		var memberName string
+		var memberIdentifier string
+		var memberMessage string
 		var memberAvatarURL string
+		var loggingFlag bool
+		var loggingChannelID string
 
-		memberIdentifier := interaction.ApplicationCommandData().Options[0].StringValue()
-		memberMessage := interaction.ApplicationCommandData().Options[1].StringValue()
-
-		// Checking to see if an All Systems go webhook exists for this channel.
-		query := fmt.Sprintf(`SELECT webhook_id FROM webhooks WHERE guild_id = %v AND channel_id = %v`,
-			interaction.GuildID, interaction.GuildID)
-
-		err = db.QueryRow(query).Scan(&webhookID)
-		if err != nil && err != sql.ErrNoRows {
-			log.Printf("%vERROR%v - COULD NOT RETRIEVE WEBHOOK FROM DATABASE:\n\t%v", Red, Reset, err)
+		channels, err := session.GuildChannels(interaction.GuildID)
+		for _, channel := range channels {
+			if channel.Name == "asg-logs" {
+				loggingChannelID = channel.ID
+				loggingFlag = true
+			}
 		}
 
+		for _, option := range interaction.ApplicationCommandData().Options {
+			if option.Type == discordgo.ApplicationCommandOptionString {
+				memberMessage = option.StringValue()
+				messageFlag = true
+			}
+		}
+
+		memberIdentifier = interaction.ApplicationCommandData().Options[0].StringValue()
+		//if len(interaction.ApplicationCommandData().Options) > 0 {
+		//	if interaction.ApplicationCommandData().Options[1].Type == discordgo.ApplicationCommandOptionString {
+		//		memberMessage = interaction.ApplicationCommandData().Options[1].StringValue()
+		//	}
+		//}
+
 		// Looping through the webhooks in the channel to see if one already exists.
-		webhooks, err := session.ChannelWebhooks(interaction.ChannelID)
+		webhooks, _ := session.ChannelWebhooks(interaction.ChannelID)
 		for _, webhook := range webhooks {
 			if webhook.Name == "All Systems Go Proxy Webhook" {
-				flag = true
+				webhookFlag = true
 				webhookID = webhook.ID
 				webhookToken = webhook.Token
 			}
 		}
 
-		if flag {
+		if webhookFlag {
 			// Proxying the message using the channel's webhook.
 			// Getting the information of the member from the DB.
-			query = fmt.Sprintf(`SELECT name, avatar FROM members WHERE discord_id = %v AND proxy = "%v";`,
+			query := fmt.Sprintf(`SELECT name, avatar FROM members WHERE discord_id = %v AND proxy = "%v";`,
 				interaction.Member.User.ID, memberIdentifier)
 
 			err = db.QueryRow(query).Scan(&memberName, &memberAvatarURL)
@@ -125,11 +132,61 @@ var commandHandlers = map[string]func(session *discordgo.Session, interaction *d
 				},
 			})
 
-			WebhookExecuteSimple(session, webhookID, webhookToken, memberMessage, memberName, memberAvatarURL)
+			if messageFlag {
+				WebhookExecuteSimple(session, webhookID, webhookToken, memberMessage, memberName, memberAvatarURL)
+			}
+			if interaction.ApplicationCommandData().Resolved != nil {
+				for _, attachment := range interaction.ApplicationCommandData().Resolved.Attachments {
+					WebhookExecuteSimple(session, webhookID, webhookToken, attachment.URL, memberName, memberAvatarURL)
+				}
+			}
+
+			embeds := []*discordgo.MessageEmbed{}
+			embedAuthor := discordgo.MessageEmbedAuthor{
+				Name: fmt.Sprintf("%v#%v || %v",
+					interaction.Member.User.Username, interaction.Member.User.Discriminator, memberName),
+			}
+			embedThumbnail := discordgo.MessageEmbedThumbnail{
+				URL: interaction.Member.User.AvatarURL(""),
+			}
+
+			if memberMessage != "" {
+				embeds = append(embeds, &discordgo.MessageEmbed{
+					Description: memberMessage,
+					Color:       0,
+					Image:       nil,
+					Thumbnail:   &embedThumbnail,
+					Author:      &embedAuthor,
+				})
+			}
+
+			if interaction.ApplicationCommandData().Resolved != nil {
+				for _, attachment := range interaction.ApplicationCommandData().Resolved.Attachments {
+					embedImage := discordgo.MessageEmbedImage{
+						URL: attachment.URL,
+					}
+
+					embeds = append(embeds, &discordgo.MessageEmbed{
+						Description: memberMessage,
+						Color:       0,
+						Image:       &embedImage,
+						Thumbnail:   &embedThumbnail,
+						Author:      &embedAuthor,
+					})
+				}
+			}
+
+			if loggingFlag {
+				session.ChannelMessageSendComplex(loggingChannelID, &discordgo.MessageSend{
+					Embeds: embeds,
+				})
+
+				session.ChannelMessageSend(loggingChannelID, fmt.Sprintf("Sent on: <t:%d:D> at <t:%d:T>",
+					time.Now().Unix(), time.Now().Unix()))
+			}
 
 			session.InteractionResponseDelete(interaction.Interaction)
-
-		} else if !flag {
+		} else if !webhookFlag {
 			webhook, err := session.WebhookCreate(
 				interaction.ChannelID,
 				"All Systems Go Proxy Webhook",
@@ -143,7 +200,7 @@ var commandHandlers = map[string]func(session *discordgo.Session, interaction *d
 			webhookID = webhook.ID
 			webhookToken = webhook.Token
 
-			query = fmt.Sprintf(`SELECT name, avatar FROM members WHERE discord_id = %v AND proxy = "%v";`,
+			query := fmt.Sprintf(`SELECT name, avatar FROM members WHERE discord_id = %v AND proxy = "%v";`,
 				interaction.Member.User.ID, memberIdentifier)
 
 			err = db.QueryRow(query).Scan(&memberName, &memberAvatarURL)
@@ -159,7 +216,58 @@ var commandHandlers = map[string]func(session *discordgo.Session, interaction *d
 				},
 			})
 
-			WebhookExecuteSimple(session, webhookID, webhookToken, memberMessage, memberName, memberAvatarURL)
+			if messageFlag {
+				WebhookExecuteSimple(session, webhookID, webhookToken, memberMessage, memberName, memberAvatarURL)
+			}
+			if interaction.ApplicationCommandData().Resolved != nil {
+				for _, attachment := range interaction.ApplicationCommandData().Resolved.Attachments {
+					WebhookExecuteSimple(session, webhookID, webhookToken, attachment.URL, memberName, memberAvatarURL)
+				}
+			}
+
+			embeds := []*discordgo.MessageEmbed{}
+			embedAuthor := discordgo.MessageEmbedAuthor{
+				Name: fmt.Sprintf("%v#%v || %v",
+					interaction.Member.User.Username, interaction.Member.User.Discriminator, memberName),
+			}
+			embedThumbnail := discordgo.MessageEmbedThumbnail{
+				URL: interaction.Member.User.AvatarURL(""),
+			}
+
+			if memberMessage != "" {
+				embeds = append(embeds, &discordgo.MessageEmbed{
+					Description: memberMessage,
+					Color:       0,
+					Image:       nil,
+					Thumbnail:   &embedThumbnail,
+					Author:      &embedAuthor,
+				})
+			}
+
+			if interaction.ApplicationCommandData().Resolved != nil {
+				for _, attachment := range interaction.ApplicationCommandData().Resolved.Attachments {
+					embedImage := discordgo.MessageEmbedImage{
+						URL: attachment.URL,
+					}
+
+					embeds = append(embeds, &discordgo.MessageEmbed{
+						Description: memberMessage,
+						Color:       0,
+						Image:       &embedImage,
+						Thumbnail:   &embedThumbnail,
+						Author:      &embedAuthor,
+					})
+				}
+			}
+
+			if loggingFlag {
+				session.ChannelMessageSendComplex(loggingChannelID, &discordgo.MessageSend{
+					Embeds: embeds,
+				})
+
+				session.ChannelMessageSend(loggingChannelID, fmt.Sprintf("Sent on <t:%d:D> at <t:%d:T>",
+					time.Now().Unix(), time.Now().Unix()))
+			}
 
 			session.InteractionResponseDelete(interaction.Interaction)
 
