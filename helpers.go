@@ -38,7 +38,7 @@ func checkForWebhook(session *discordgo.Session, interaction *discordgo.Interact
 		if webhook.Name == "All Systems Go Proxy Webhook" {
 			webhookFlag = true
 			webhookID = webhook.ID
-			webhookToken = webhookToken
+			webhookToken = webhook.Token
 
 			return webhookFlag, webhookID, webhookToken
 		}
