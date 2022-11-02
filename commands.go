@@ -30,4 +30,9 @@ var commands = []*discordgo.ApplicationCommand{
 			},
 		},
 	},
+	{
+		Name:         "auto_proxy_message",
+		Description:  "Proxies a message using the current fronter of your system.",
+		DMPermission: &dmPermission,
+	},
 }
