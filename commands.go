@@ -4,8 +4,12 @@ import "github.com/bwmarrin/discordgo"
 
 var dmPermission bool = false
 var manageServerPermission int64 = discordgo.PermissionManageServer
+
 var tokenMinLength int = 64
 var tokenMaxLength int = 64
+
+var switchMinLength = 0
+var switchMaxLength = 100
 
 var commands = []*discordgo.ApplicationCommand{
 	{
@@ -29,6 +33,27 @@ var commands = []*discordgo.ApplicationCommand{
 				MaxLength:   tokenMaxLength,
 			},
 		},
+	},
+	{
+		Name:         "switch",
+		Description:  "This command registers a switch with PK so that you can use the /auto_proxy_message command.",
+		DMPermission: &dmPermission,
+
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "member_name",
+				Description: "The name of the member switching in.",
+				Required:    true,
+				MinLength:   &switchMinLength,
+				MaxLength:   switchMaxLength,
+			},
+		},
+	},
+	{
+		Name:         "list_members",
+		Description:  "This command lists your system members.",
+		DMPermission: &dmPermission,
 	},
 	{
 		Name:         "auto_proxy_message",
