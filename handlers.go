@@ -308,7 +308,7 @@ var commandHandlers = map[string]func(session *discordgo.Session, interaction *d
 		var embeds []*discordgo.MessageEmbed
 
 		memberProxy := interaction.ApplicationCommandData().Options[0].StringValue()
-
+		
 		// Setting up a delayed response.
 		session.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
