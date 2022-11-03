@@ -17,6 +17,8 @@ github.com/starshine-sys/pkgo/v2 v2.0.2 h1:6NcXFgaHtq3IF4IAIVPkjopQbiVmFhi3GuVDL
 github.com/starshine-sys/pkgo/v2 v2.0.2/go.mod h1:P13mUJ7fo3l0LqRuF8aqrCMz7msQNNF0zgaWnHSx1y0=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
+github.com/varSapphire/discordgo-widgets v0.0.0-20220828013228-49403ac2afe2 h1:+lUzdgm+KncWOEDuZ8TdEhDTwWxwjWgHoWwsTy2+ebA=
+github.com/varSapphire/discordgo-widgets v0.0.0-20220828013228-49403ac2afe2/go.mod h1:dStXOplXC9DA7cDuVsv06K7WKJi00823FqqMcWSGbJc=
 go.uber.org/atomic v1.7.0 h1:ADUqmZGgLDDfbSL9ZmPxKTybcoEYHgpYfELNoN+7hsw=
 go.uber.org/atomic v1.7.0/go.mod h1:fEN4uk6kAWBTFdckzkM89CLk9XfWZrxpCo0nPH17wJc=
 go.uber.org/multierr v1.6.0 h1:y6IPFStTAIT5Ytl7/XYmHvzXQ7S3g/IeZW9hyZ5thw4=
