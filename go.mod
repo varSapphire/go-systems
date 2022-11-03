@@ -13,6 +13,7 @@ require (
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/starshine-sys/pkgo/v2 v2.0.2 // indirect
+	github.com/varSapphire/discordgo-widgets v0.0.0-20220828013228-49403ac2afe2 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b // indirect
