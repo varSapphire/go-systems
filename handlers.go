@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/starshine-sys/pkgo/v2"
+	"github.com/varSapphire/discordgo-widgets"
 	"log"
+	"sort"
+	"text/tabwriter"
+	"time"
 )
 
 func clientJoin(session *discordgo.Session, guild *discordgo.GuildCreate) {
@@ -80,7 +85,232 @@ var commandHandlers = map[string]func(session *discordgo.Session, interaction *d
 		content := fmt.Sprintf("You are successfully registered!")
 		session.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Content: &content})
 	},
-	// This command proxies a message using a PluralKit proxy.
+	"switch": func(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
+		var pkToken string
+		var memberID string
+
+		var embedAuthor discordgo.MessageEmbedAuthor
+		var embedFields []*discordgo.MessageEmbedField
+
+		var embeds []*discordgo.MessageEmbed
+
+		memberName := interaction.ApplicationCommandData().Options[0].StringValue()
+		loggingChannelID, loggingFlag := checkforLogging(session, interaction.Interaction)
+
+		// Setting up a delayed response.
+		session.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Flags: 1 << 6,
+			},
+		})
+
+		// Getting the user's PK token from the database.
+		query := fmt.Sprintf(`SELECT pk_token FROM tokens WHERE discord_id = %v`, interaction.Member.User.ID)
+		err := db.QueryRow(query).Scan(&pkToken)
+		if err != nil {
+			log.Printf("%vERROR%v - COULD NOT RETRIEVE SYSTEM TOKEN FROM DATABASE:\n\t%v", Red, Reset, err.Error())
+
+			content := fmt.Sprintf("ERROR - COULD NOT RETRIEVE SYSTEM TOKEN FROM DATABASE:\n\t%v", err.Error())
+			session.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Content: &content})
+
+			return
+		}
+		log.Printf("%vSUCCESS%v - GRABBED USER'S PK TOKEN FROM DATABASE.", Cyan, Reset)
+
+		// Authenticating a PK session to grab member information.
+		pk := pkgo.New(pkToken)
+		log.Printf("%vSUCCESS%v - AUTHENTICATED A NEW PK SESSION.", Cyan, Reset)
+
+		members, err := pk.Members("@me")
+		if err != nil {
+			log.Printf("%vERROR%v - COULD NOT RETRIEVE MEMBERS INFORMATION FROM PLURALKIT:\n\t%v", Red, Reset, err.Error())
+
+			content := fmt.Sprintf("ERROR - COULD NOT RETRIEVE MEMBERS INFORMATION FROM PLURALKIT:\n\t%v", err.Error())
+			session.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Content: &content})
+
+			return
+		}
+		log.Printf("%vSUCCESS%v - GRABBED MEMBERS INFORMATION FROM PK DATABASE.", Cyan, Reset)
+
+		for _, member := range members {
+			if member.Name == memberName {
+				memberID = member.ID
+
+				embedAuthor.Name = member.Name
+				embedAuthor.IconURL = member.AvatarURL
+
+				embedFields = append(embedFields, &discordgo.MessageEmbedField{
+					Name:   "User:",
+					Value:  fmt.Sprintf("<@%v>", interaction.Member.User.ID),
+					Inline: true,
+				})
+
+				embedFields = append(embedFields, &discordgo.MessageEmbedField{
+					Name:   "Channel:",
+					Value:  fmt.Sprintf("<#%v>", interaction.ChannelID),
+					Inline: true,
+				})
+			} else {
+				log.Printf("%vERROR%v - MEMBER NOT FOUND.", Yellow, Reset)
+			}
+		}
+		log.Printf("%vSUCCESS%v - MEMBER FOUND.", Cyan, Reset)
+
+		err = pk.RegisterSwitch(memberID)
+		if err != nil {
+			log.Printf("%vERROR%v - COULD NOT REGISTER SWITCH WITH PLURALKIT:\n\t%v", Red, Reset, err.Error())
+
+			content := fmt.Sprintf("ERROR - COULD NOT REGISTER SWITCH WITH PLURALKIT:\n\t%v", err.Error())
+			session.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Content: &content})
+
+			return
+		}
+
+		log.Printf("%vSUCCESS%v - REGISTERED SWITCH WITH PLURALKIT.", Green, Reset)
+
+		content := fmt.Sprintf("SUCCESS - REGISTERED SWITCH WITH PLURALKIT.")
+		session.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Content: &content})
+
+		if loggingFlag {
+			t, _ := discordgo.SnowflakeTimestamp(interaction.ID)
+			ts := t.Format("2006-01-02T15:04:05-0700")
+
+			embeds = append(embeds, &discordgo.MessageEmbed{
+				URL:         "",
+				Type:        "",
+				Title:       "",
+				Description: "Switch registered!",
+				Timestamp:   ts,
+				Color:       0,
+				Footer:      nil,
+				Image:       nil,
+				Thumbnail:   nil,
+				Video:       nil,
+				Provider:    nil,
+				Author:      &embedAuthor,
+				Fields:      embedFields,
+			})
+
+			session.ChannelMessageSendComplex(loggingChannelID, &discordgo.MessageSend{
+				Content:         "",
+				Embeds:          embeds,
+				TTS:             false,
+				Components:      nil,
+				Files:           nil,
+				AllowedMentions: nil,
+				Reference:       nil,
+				File:            nil,
+				Embed:           nil,
+			})
+		}
+
+	},
+	// This command lists all members in a System.
+	"list_members": func(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
+		var pkToken string
+		var membersList [][]pkgo.Member
+		var embeds []*discordgo.MessageEmbed
+
+		// Setting up a delayed response.
+		session.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Flags: 1 << 6,
+			},
+		})
+
+		// Getting the user's PK token from the database.
+		query := fmt.Sprintf(`SELECT pk_token FROM tokens WHERE discord_id = %v`, interaction.Member.User.ID)
+		err := db.QueryRow(query).Scan(&pkToken)
+		if err != nil {
+			log.Printf("%vERROR%v - COULD NOT RETRIEVE SYSTEM TOKEN FROM DATABASE:\n\t%v", Red, Reset, err.Error())
+
+			content := fmt.Sprintf("ERROR - COULD NOT RETRIEVE SYSTEM TOKEN FROM DATABASE:\n\t%v", err.Error())
+			session.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Content: &content})
+
+			return
+		}
+		log.Printf("%vSUCCESS%v - GRABBED USER'S PK TOKEN FROM DATABASE.", Cyan, Reset)
+
+		// Authenticating a PK session to grab member information.
+		pk := pkgo.New(pkToken)
+		log.Printf("%vSUCCESS%v - AUTHENTICATED A NEW PK SESSION.", Cyan, Reset)
+
+		members, err := pk.Members("@me")
+		if err != nil {
+			log.Printf("%vERROR%v - COULD NOT RETRIEVE MEMBERS INFORMATION FROM PLURALKIT:\n\t%v", Red, Reset, err.Error())
+
+			content := fmt.Sprintf("ERROR - COULD NOT RETRIEVE MEMBERS INFORMATION FROM PLURALKIT:\n\t%v", err.Error())
+			session.InteractionResponseEdit(interaction.Interaction, &discordgo.WebhookEdit{Content: &content})
+
+			return
+		}
+		log.Printf("%vSUCCESS%v - GRABBED MEMBERS INFORMATION FROM PK DATABASE.", Cyan, Reset)
+
+		// Funky Shit Time
+		sort.SliceStable(members[:], func(i, j int) bool {
+			return members[i].Name < members[j].Name
+		})
+
+		chunkSize := 32
+		for i := 0; i < len(members); i += chunkSize {
+			end := i + chunkSize
+
+			if end > len(members) {
+				end = len(members)
+			}
+
+			membersList = append(membersList, members[i:end])
+		}
+
+		for _, members := range membersList {
+			buffer := new(bytes.Buffer)
+			writer := tabwriter.NewWriter(buffer, 0, 0, 4, ' ', 0)
+			fmt.Fprintln(writer, "Member Name:\tProxy:")
+
+			for _, member := range members {
+				_, err := fmt.Fprintf(writer, "%v\t%v\n", member.Name, member.ProxyTags)
+				if err != nil {
+					log.Println(err)
+				}
+			}
+
+			writer.Flush()
+
+			content := "```" + buffer.String() + "```"
+
+			embeds = append(embeds, &discordgo.MessageEmbed{
+				URL:         "",
+				Type:        "",
+				Title:       "",
+				Description: content,
+				Timestamp:   "",
+				Color:       0,
+				Footer:      nil,
+				Image:       nil,
+				Thumbnail:   nil,
+				Video:       nil,
+				Provider:    nil,
+				Author:      nil,
+				Fields:      nil,
+			})
+
+		}
+
+		paginator := dgwidgets.NewPaginator(session, interaction.ChannelID)
+
+		for _, embed := range embeds {
+			paginator.Add(embed)
+		}
+
+		paginator.Widget.Timeout = time.Minute * 5
+		paginator.Widget.LockToUsers(interaction.Member.User.ID)
+		err = paginator.Spawn()
+
+		session.InteractionResponseDelete(interaction.Interaction)
+	},
+	// These commands proxy a message using a PluralKit proxy.
 	"auto_proxy_message": func(session *discordgo.Session, interaction *discordgo.InteractionCreate) {
 		var pkToken string
 
@@ -308,7 +538,7 @@ var commandHandlers = map[string]func(session *discordgo.Session, interaction *d
 		var embeds []*discordgo.MessageEmbed
 
 		memberProxy := interaction.ApplicationCommandData().Options[0].StringValue()
-		
+
 		// Setting up a delayed response.
 		session.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
 			Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
@@ -525,7 +755,6 @@ var commandHandlers = map[string]func(session *discordgo.Session, interaction *d
 					return
 				} else {
 					log.Printf("%vERROR%v - PROXY NOT FOUND.", Yellow, Reset)
-
 				}
 			}
 		}
